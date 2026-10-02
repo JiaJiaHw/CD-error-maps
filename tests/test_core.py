@@ -24,6 +24,14 @@ from cd_error_maps.core import (
 from cd_error_maps.masks import read_mask
 
 
+def temporary_directory():
+    # Keep synthetic scratch files in the ignored project directory. This
+    # also works in restricted runners whose global temp directory is read-only.
+    scratch = Path(__file__).resolve().parents[1] / ".tmp"
+    scratch.mkdir(exist_ok=True)
+    return tempfile.TemporaryDirectory(dir=scratch)
+
+
 class CoreTests(unittest.TestCase):
     def test_hand_computed_all_four_directions(self):
         # GT 0/pred 0 -> TN; GT 1/pred 1 -> TP;
@@ -115,7 +123,7 @@ class CoreTests(unittest.TestCase):
             [[[0, 0, 0], [255, 255, 255], [230, 159, 0], [0, 114, 178], [128, 128, 128]]],
         )
         self.assertEqual(rgb.dtype, np.dtype(np.uint8))
-        with tempfile.TemporaryDirectory() as temporary:
+        with temporary_directory() as temporary:
             root = Path(temporary)
             Image.fromarray(index).save(root / "index.png")
             Image.fromarray(rgb).save(root / "rgb.png")
@@ -157,7 +165,7 @@ class CoreTests(unittest.TestCase):
 
 class MaskTests(unittest.TestCase):
     def setUp(self):
-        self.temporary = tempfile.TemporaryDirectory()
+        self.temporary = temporary_directory()
         self.root = Path(self.temporary.name)
 
     def tearDown(self):

@@ -4,6 +4,7 @@ import string
 from pathlib import Path
 
 from .common import CDMapError, validate_relative
+from .core import validate_palette
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 PALETTE = {"TN": [0, 0, 0], "TP": [255, 255, 255], "FP": [230, 159, 0],
@@ -21,8 +22,11 @@ def _path(value):
         return None
     if not isinstance(value, str) or not value:
         raise CDMapError("Configuration paths must be nonempty strings")
-    path = Path(value)
-    return (path if path.is_absolute() else PROJECT_ROOT / path).resolve()
+    try:
+        path = Path(value)
+        return (path if path.is_absolute() else PROJECT_ROOT / path).resolve()
+    except (OSError, ValueError, RuntimeError) as exc:
+        raise CDMapError("Cannot resolve configuration path {!r}: {}".format(value, exc)) from exc
 
 
 def _names(value, label):
@@ -44,7 +48,7 @@ def load_config(path=None):
         path = _path(str(path))
     try:
         raw = json.loads(Path(path).read_text(encoding="utf-8-sig"))
-    except (OSError, ValueError) as exc:
+    except (OSError, ValueError, RuntimeError) as exc:
         raise CDMapError("Cannot read config {}: {}".format(path, exc))
     if not isinstance(raw, dict) or set(raw) - ALLOWED:
         raise CDMapError("Unknown configuration keys or invalid object: {}".format(
@@ -57,6 +61,9 @@ def load_config(path=None):
     config.setdefault("output_root", "outputs")
     for key in PATH_KEYS:
         config[key] = _path(config.get(key))
+    for key in ("samples_root", "prediction_root", "output_root"):
+        if config[key] is None:
+            raise CDMapError("{} must be a nonempty path string".format(key))
     if bool(config["selection_file"]) == bool(config["samples_manifest"]):
         raise CDMapError("Choose exactly one selection_file or samples_manifest")
     if "prediction_path_template" not in config:
@@ -64,11 +71,13 @@ def load_config(path=None):
     if bool(config["prediction_manifest"]) == bool(config["prediction_path_template"]):
         raise CDMapError("Choose exactly one prediction_manifest or prediction_path_template")
     template = config["prediction_path_template"]
+    if template is not None and (not isinstance(template, str) or not template):
+        raise CDMapError("prediction_path_template must be null or a nonempty string")
     if template:
         try:
             parsed = list(string.Formatter().parse(template))
             fields = [field for _, field, _, _ in parsed if field is not None]
-            if set(fields) != {"dataset", "model", "sample_id"} or any(spec or conv for _, _, spec, conv in parsed):
+            if len(fields) != 3 or set(fields) != {"dataset", "model", "sample_id"} or any(spec or conv for _, _, spec, conv in parsed):
                 raise ValueError("requires dataset, model, sample_id fields without format specs")
             validate_relative(template.format(dataset="D", model="M", sample_id="S.png"))
         except (ValueError, KeyError, IndexError) as exc:
@@ -76,12 +85,21 @@ def load_config(path=None):
     _names(config.get("datasets"), "datasets")
     _names(config.get("models"), "models")
     config.setdefault("combinations", [])
+    if not isinstance(config["combinations"], list):
+        raise CDMapError("combinations must be a list of {dataset, model} objects")
+    seen_combinations = set()
     for pair in config["combinations"]:
         if not isinstance(pair, dict) or set(pair) != {"dataset", "model"} or pair["dataset"] not in config["datasets"] or pair["model"] not in config["models"]:
             raise CDMapError("Invalid combinations entry: {}".format(pair))
+        key = (pair["dataset"], pair["model"])
+        if key in seen_combinations:
+            raise CDMapError("Duplicate combinations entry: {}:{}".format(*key))
+        seen_combinations.add(key)
     config.setdefault("gt_encoding", "binary_0255")
     config.setdefault("prediction_encoding", "binary_0255")
     config.setdefault("encodings", {})
+    if not isinstance(config["encodings"], dict):
+        raise CDMapError("encodings must be an object keyed by dataset and model")
     for dataset, rules in config["encodings"].items():
         if dataset not in config["datasets"] or not isinstance(rules, dict):
             raise CDMapError("Invalid encoding override dataset")
@@ -104,7 +122,10 @@ def load_config(path=None):
                 if ig["gt_value"] in (0, fg):
                     raise CDMapError("GT ignore value overlaps background/foreground encoding")
     config.setdefault("palette", PALETTE)
+    config["palette"] = validate_palette(config["palette"])
     config.setdefault("expected_counts", {})
+    if not isinstance(config["expected_counts"], dict):
+        raise CDMapError("expected_counts must be an object keyed by dataset")
     for dataset, count in config["expected_counts"].items():
         if dataset not in config["datasets"] or type(count) is not int or count <= 0:
             raise CDMapError("Invalid expected_counts")
@@ -115,10 +136,30 @@ def load_config(path=None):
         value = config.get(key)
         if value is not None and (not isinstance(value, str) or len(value) != 64 or any(c not in "0123456789abcdef" for c in value)):
             raise CDMapError("{} must be a lowercase SHA-256".format(key))
+    config.setdefault("model_aliases", {})
+    if not isinstance(config["model_aliases"], dict):
+        raise CDMapError("model_aliases must be an object keyed by canonical model")
+    seen_aliases = {}
+    canonical_models = {model.casefold(): model for model in config["models"]}
+    for model, aliases in config["model_aliases"].items():
+        if model not in config["models"]:
+            raise CDMapError("Unknown canonical model in model_aliases: {}".format(model))
+        _names(aliases, "model_aliases for {}".format(model))
+        for alias in aliases:
+            alias_key = alias.casefold()
+            owner = seen_aliases.get(alias_key, canonical_models.get(alias_key))
+            if owner is not None and owner != model:
+                raise CDMapError("Model alias is ambiguous: {}".format(alias))
+            seen_aliases[alias_key] = model
     # An output root inside or enclosing an input root risks overwriting source data.
+    # Compare component spellings portably, including Linux configurations whose
+    # paths would otherwise alias when moved to a case-insensitive filesystem.
     for input_root in (config["samples_root"], config["prediction_root"]):
         out = config["output_root"]
-        if out == input_root or out in input_root.parents or input_root in out.parents:
+        out_parts = tuple(part.casefold() for part in out.parts)
+        input_parts = tuple(part.casefold() for part in input_root.parts)
+        shorter = min(len(out_parts), len(input_parts))
+        if out_parts[:shorter] == input_parts[:shorter]:
             raise CDMapError("output_root overlaps input root: {}".format(input_root))
     return config
 

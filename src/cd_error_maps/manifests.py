@@ -162,6 +162,8 @@ def load_selection_records(root, selection_file=None, expected_sha=None, expecte
     check_unique_paths(all_targets, "Frozen input")
     if expected_counts:
         _require(set(expected_counts) <= set(datasets), "Expected datasets missing from selection")
+    for path, digest in hashes.items():
+        _require(sha256(path) == digest, "Manifest changed while reading: " + path)
     return records, hashes, selection
 
 
@@ -202,6 +204,8 @@ def load_samples(config):
             _require(set(config["expected_counts"]) <= {record["dataset"] for record in records}, "Expected datasets missing from samples manifest")
         check_unique_paths([safe_join(root, record["gt_relative_path"]) for record in records], "GT input")
     check_unique_paths([safe_join(root, record["dataset"] + "/" + output_id(record["sample_id"])) for record in records], "Sample output")
+    for path, digest in hashes.items():
+        _require(sha256(path) == digest, "Manifest changed while reading: " + path)
     return records, hashes
 
 
@@ -235,7 +239,7 @@ def pair_samples(config, samples, combinations):
     _require(not (manifest and template), "prediction_manifest and prediction_path_template are mutually exclusive")
     mapping = {}
     if manifest:
-        _check_hash(manifest, config.get("expected_prediction_manifest_sha256"), "Prediction manifest")
+        manifest_digest = _check_hash(manifest, config.get("expected_prediction_manifest_sha256"), "Prediction manifest")
         rows = _csv_rows(manifest, ["dataset", "model", "sample_id", "prediction_relative_path"])
         for row in rows:
             if (row["dataset"], row["model"]) not in scope:
@@ -284,7 +288,9 @@ def pair_samples(config, samples, combinations):
                         extras.append(candidate.relative_to(root).as_posix())
             _require(not extras, "Extra Prediction images in " + dataset + "/" + model + ": " + ", ".join(sorted(extras)))
     check_unique_paths(paths, "Prediction input")
-    gt_paths = {safe_join(config["samples_root"], sample["gt_relative_path"]).resolve() for sample in samples}
-    _require(not (set(path.resolve() for path in paths) & gt_paths), "Prediction path conflicts with GT input")
+    gt_paths = {str(safe_join(config["samples_root"], sample["gt_relative_path"])).casefold() for sample in samples}
+    _require(not ({str(path.resolve()).casefold() for path in paths} & gt_paths), "Prediction path conflicts with GT input")
     check_unique_paths([safe_join(root, pair["dataset"] + "/" + pair["model"] + "/" + output_id(pair["sample_id"])) for pair in result], "Error map output")
+    if manifest:
+        _require(sha256(manifest) == manifest_digest, "Prediction manifest changed while reading: " + str(manifest))
     return result

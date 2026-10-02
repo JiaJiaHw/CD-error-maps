@@ -4,6 +4,7 @@ import csv
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from cd_error_maps.common import CDMapError, sha256
 from cd_error_maps.manifests import load_samples, pair_samples
@@ -19,7 +20,9 @@ def write_csv(path, fields, rows):
 
 class ManifestTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory()
+        temporary_root = Path(__file__).resolve().parents[1] / ".tmp"
+        temporary_root.mkdir(exist_ok=True)
+        self.temp = tempfile.TemporaryDirectory(dir=str(temporary_root))
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         self.config = {"samples_root": self.root / "samples", "samples_manifest": self.root / "samples.csv",
@@ -82,6 +85,35 @@ class ManifestTests(unittest.TestCase):
         self.config["expected_manifest_sha256"] = "0" * 64
         with self.assertRaisesRegex(CDMapError, "SHA-256 mismatch"):
             load_samples(self.config)
+
+    def test_samples_manifest_changed_during_read_rejected(self):
+        from cd_error_maps import manifests
+        original_rows = manifests._csv_rows
+
+        def concurrent_change(path, fields):
+            rows = original_rows(path, fields)
+            Path(path).write_bytes(Path(path).read_bytes() + b"\n")
+            return rows
+
+        with mock.patch.object(manifests, "_csv_rows", side_effect=concurrent_change):
+            with self.assertRaisesRegex(CDMapError, "Manifest changed while reading"):
+                load_samples(self.config)
+
+    def test_prediction_manifest_changed_during_read_rejected(self):
+        from cd_error_maps import manifests
+        self.prediction_files()
+        self.mapping(self.mapping_rows())
+        samples = load_samples(self.config)[0]
+        original_rows = manifests._csv_rows
+
+        def concurrent_change(path, fields):
+            rows = original_rows(path, fields)
+            Path(path).write_bytes(Path(path).read_bytes() + b"\n")
+            return rows
+
+        with mock.patch.object(manifests, "_csv_rows", side_effect=concurrent_change):
+            with self.assertRaisesRegex(CDMapError, "Prediction manifest changed while reading"):
+                pair_samples(self.config, samples, [("D", "M")])
 
     def test_count_dimension_and_csv_column_checks(self):
         self.config["expected_counts"] = {"D": 3}

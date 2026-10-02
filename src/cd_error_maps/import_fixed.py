@@ -156,6 +156,8 @@ def _preflight_merge(stage, destination):
     stage_files = [path for path in stage.rglob("*") if path.is_file()]
     staged_relatives = {path.relative_to(stage).as_posix() for path in stage_files}
     expected_images = {relative for relative in staged_relatives if Path(relative).suffix.lower() in IMAGE_SUFFIXES}
+    overlay_nodes = {}
+    existing_paths = []
     if destination.exists():
         existing_paths = list(destination.rglob("*"))
         check_unique_paths([path for path in existing_paths if path.is_file()], "Existing fixed sample")
@@ -165,6 +167,18 @@ def _preflight_merge(stage, destination):
             safe_join(destination, relative)
             if existing.is_file() and existing.suffix.lower() in IMAGE_SUFFIXES:
                 _require(relative in expected_images, "Existing extra image; refusing import: " + relative)
+    # Include directories, even empty ones: D/ and d/ are a portability conflict
+    # on a case-sensitive filesystem and alias each other on Windows.
+    for tree_root, tree_paths in ((destination, existing_paths), (stage, list(stage.rglob("*")))):
+        for path in tree_paths:
+            relative = path.relative_to(tree_root).as_posix()
+            node = (relative, path.is_dir())
+            key = relative.casefold()
+            if key in overlay_nodes:
+                _require(overlay_nodes[key] == node,
+                         "Existing case or file/directory conflict; refusing import: " + relative)
+            else:
+                overlay_nodes[key] = node
     for staged in stage.rglob("*"):
         relative = staged.relative_to(stage).as_posix()
         target = safe_join(destination, relative)
@@ -178,6 +192,17 @@ def _preflight_merge(stage, destination):
                 break
             _require(not parent.exists() or parent.is_dir(), "Existing ancestor is a file: " + str(parent))
     return stage_files
+
+
+def _guard_destination(destination, resolved_destination):
+    """Reject redirected destination roots before staging or each merge write."""
+    for path in (destination,) + tuple(destination.parents):
+        _require(not path.is_symlink(), "Destination ancestor symlink is forbidden: " + str(path))
+        # pathlib.is_junction was introduced after the Python 3.9 target.
+        if hasattr(path, "is_junction"):
+            _require(not path.is_junction(), "Destination ancestor junction is forbidden: " + str(path))
+    _require(str(destination.resolve()).casefold() == str(resolved_destination).casefold(),
+             "Destination changed during import: " + str(destination))
 
 
 def import_archive(archive, checksum_file, destination, expected_archive_sha256=None,
@@ -194,6 +219,8 @@ def import_archive(archive, checksum_file, destination, expected_archive_sha256=
     _require(expected is not None, "Provide checksum_file or expected_archive_sha256")
     archive_hash = sha256(archive_path)
     _require(archive_hash == expected, "Archive SHA-256 mismatch: " + str(archive_path))
+    resolved_destination = destination.resolve()
+    _guard_destination(destination, resolved_destination)
     destination.parent.mkdir(parents=True, exist_ok=True)
     stage = None
     try:
@@ -210,6 +237,8 @@ def import_archive(archive, checksum_file, destination, expected_archive_sha256=
                         shutil.copyfileobj(source, output)
                     _require(target.stat().st_size == member.size, "Truncated archive member: " + member.name)
         staged_report = verify_fixed_samples(stage, expected_selection_sha256, expected_counts, expected_size)
+        _require(sha256(archive_path) == archive_hash, "Source archive changed before merge")
+        _guard_destination(destination, resolved_destination)
         files = _preflight_merge(stage, destination)
         destination.mkdir(parents=True, exist_ok=True)
         copied = 0
@@ -217,8 +246,12 @@ def import_archive(archive, checksum_file, destination, expected_archive_sha256=
         # The export marker is placed last, after all other bytes are present.
         files.sort(key=lambda path: (path.relative_to(stage).as_posix() == "EXPORT_COMPLETE.json", path.relative_to(stage).as_posix()))
         for source in files:
+            _guard_destination(destination, resolved_destination)
             target = safe_join(destination, source.relative_to(stage).as_posix())
             if target.exists():
+                _require(target.is_file() and not target.is_symlink() and
+                         target.stat().st_size == source.stat().st_size and sha256(target) == sha256(source),
+                         "Existing file changed after preflight; refusing import: " + str(target))
                 reused += 1
                 continue
             target.parent.mkdir(parents=True, exist_ok=True)

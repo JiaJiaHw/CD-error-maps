@@ -31,8 +31,11 @@ def validate_relative(value):
 
 def safe_join(root, relative):
     validate_relative(relative)
-    root = Path(root).resolve()
-    path = root.joinpath(*relative.split("/")).resolve()
+    try:
+        root = Path(root).resolve()
+        path = root.joinpath(*relative.split("/")).resolve()
+    except (TypeError, ValueError, OSError, RuntimeError) as exc:
+        raise CDMapError("Cannot resolve root or relative path: {}".format(exc)) from exc
     try:
         path.relative_to(root)
     except ValueError:
@@ -46,14 +49,38 @@ def output_id(sample_id):
 
 
 def check_unique_paths(paths, label):
+    """Reject file aliases and portable file/directory naming conflicts.
+
+    Ancestor casing matters too: ``Group/a.png`` and ``group/b.png`` must not
+    silently collapse into one directory when copied to a case-insensitive
+    filesystem. Materialize iterables so generator input receives all checks.
+    """
     seen = {}
-    for path in paths:
-        key = str(Path(path).resolve()).casefold()
+    resolved = []
+    ancestors = {}
+    for original in paths:
+        try:
+            lexical = Path(original).absolute()
+            path = lexical.resolve()
+        except (TypeError, ValueError, OSError, RuntimeError) as exc:
+            raise CDMapError("Cannot resolve {} path: {}".format(label, exc)) from exc
+        key = str(path).casefold()
         if key in seen:
             raise CDMapError("{} path collision: {} / {}".format(label, seen[key], path))
         seen[key] = path
+        resolved.append(path)
+        for parent in lexical.parents:
+            spelling = str(parent)
+            portable = spelling.casefold()
+            if portable in ancestors and ancestors[portable] != spelling:
+                raise CDMapError(
+                    "{} directory casing collision: {} / {}".format(
+                        label, ancestors[portable], spelling
+                    )
+                )
+            ancestors[portable] = spelling
     keys = set(seen)
-    for path in paths:
-        for parent in Path(path).resolve().parents:
+    for path in resolved:
+        for parent in path.parents:
             if str(parent).casefold() in keys:
                 raise CDMapError("{} file/directory path conflict: {}".format(label, path))

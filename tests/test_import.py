@@ -7,6 +7,7 @@ import tarfile
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import numpy as np
 from PIL import Image
@@ -76,7 +77,9 @@ def synthetic_export(root):
 
 class ImportTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory()
+        temporary_root = Path(__file__).resolve().parents[1] / ".tmp"
+        temporary_root.mkdir(exist_ok=True)
+        self.temp = tempfile.TemporaryDirectory(dir=str(temporary_root))
         self.addCleanup(self.temp.cleanup)
         self.base = Path(self.temp.name)
         self.source = self.base / "original-export"
@@ -165,6 +168,56 @@ class ImportTests(unittest.TestCase):
         with self.assertRaisesRegex(CDMapError, "Existing extra image"):
             self.run_import()
         self.assertEqual(path.read_bytes(), b"existing image")
+
+    def test_existing_empty_directory_case_conflict_prevents_copies(self):
+        (self.destination / "d").mkdir(parents=True)
+        with self.assertRaisesRegex(CDMapError, "case or file/directory conflict"):
+            self.run_import()
+        self.assertFalse((self.destination / "selection.json").exists())
+        self.assertTrue((self.destination / "d").is_dir())
+
+    def test_existing_file_changed_between_preflight_and_copy_detected(self):
+        self.run_import()
+        path = self.destination / "D/GT/Abc.png"
+        from cd_error_maps import import_fixed
+        original_preflight = import_fixed._preflight_merge
+
+        def concurrent_change(stage, destination):
+            files = original_preflight(stage, destination)
+            path.write_bytes(b"externally changed file")
+            return files
+
+        with mock.patch.object(import_fixed, "_preflight_merge", side_effect=concurrent_change):
+            with self.assertRaisesRegex(CDMapError, "changed after preflight"):
+                self.run_import()
+        self.assertEqual(path.read_bytes(), b"externally changed file")
+
+    def test_archive_changed_before_merge_prevents_copies(self):
+        from cd_error_maps import import_fixed
+        original_verify = import_fixed.verify_fixed_samples
+
+        def concurrent_change(root, *args):
+            report = original_verify(root, *args)
+            self.archive.write_bytes(self.archive.read_bytes() + b"changed")
+            return report
+
+        with mock.patch.object(import_fixed, "verify_fixed_samples", side_effect=concurrent_change):
+            with self.assertRaisesRegex(CDMapError, "changed before merge"):
+                self.run_import()
+        self.assertFalse(self.destination.exists())
+
+    def test_destination_parent_symlink_escape_rejected(self):
+        external = self.base / "external"
+        external.mkdir()
+        link = self.base / "alias"
+        try:
+            link.symlink_to(external, target_is_directory=True)
+        except (OSError, NotImplementedError):
+            self.skipTest("Creating directory symlinks requires OS privileges")
+        self.destination = link / "imported"
+        with self.assertRaisesRegex(CDMapError, "ancestor symlink"):
+            self.run_import()
+        self.assertFalse((external / "imported").exists())
 
     def test_checksum_and_expected_hash_fail_before_destination_writes(self):
         for options in ({"expected_archive_sha256": "0" * 64}, {"expected_selection_sha256": "1" * 64},
