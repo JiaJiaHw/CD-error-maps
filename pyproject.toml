@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cd-error-maps"
+version = "0.1.0"
+description = "Manifest-driven binary change detection error maps"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = ["numpy>=1.23.5,<3", "Pillow>=9.5,<12"]
+
+[project.scripts]
+cd-error-maps = "cd_error_maps.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

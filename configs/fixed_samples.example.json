@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "samples_root": "data/fixed_samples",
+  "selection_file": "data/fixed_samples/selection.json",
+  "prediction_root": "data/predictions",
+  "prediction_path_template": "{dataset}/{model}/{sample_id}",
+  "output_root": "outputs",
+  "datasets": ["LEVIR-CD", "SYSU-CD", "WHU"],
+  "models": ["BIT_CD", "CDMamba", "ChangeFine", "ChangeFormer", "ChangeViT", "FC-Siam-diff", "RSMamba", "SNUnet-CD", "BAN", "ChangerEx-S50"],
+  "model_aliases": {"BIT_CD": ["BIT", "BIT-CD"], "RSMamba": ["RSM-CD"], "SNUnet-CD": ["Siam-NestedUNet", "SNUNet-CD", "SNUnet"]},
+  "gt_encoding": "binary_0255",
+  "prediction_encoding": "binary_0255",
+  "ignore": null,
+  "palette": {"TN": [0, 0, 0], "TP": [255, 255, 255], "FP": [230, 159, 0], "FN": [0, 114, 178], "IGNORE": [128, 128, 128]}
+}
