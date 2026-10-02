@@ -13,6 +13,7 @@
 /wheelhouse/
 /data/.fixed-import-*/
 .venv/
+.conda/
 venv/
 __pycache__/
 *.py[cod]

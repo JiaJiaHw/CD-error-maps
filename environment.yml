@@ -1,0 +1,9 @@
+name: cd-error-maps
+channels:
+  - conda-forge
+dependencies:
+  - python=3.9
+  - numpy=1.26.4
+  - pillow=10.4.0
+  - pip
+  - setuptools

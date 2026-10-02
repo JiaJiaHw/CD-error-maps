@@ -1,0 +1,3 @@
+dataset,model,sample_id,prediction_relative_path,prediction_sha256,acquisition_method,provenance_reference
+MY-DATASET,MY-MODEL,0001.png,MY-DATASET/MY-MODEL/0001_pred.png,,USER_SUPPLIED,local-export-report.json
+MY-DATASET,MY-MODEL,Subset/Case_02.png,MY-DATASET/MY-MODEL/Subset/Case_02_pred.png,,USER_SUPPLIED,local-export-report.json

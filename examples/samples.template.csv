@@ -1,0 +1,3 @@
+dataset,sample_id,gt_relative_path,rank,gt_sha256,width,height
+MY-DATASET,0001.png,MY-DATASET/GT/0001.png,1,,,
+MY-DATASET,Subset/Case_02.png,MY-DATASET/GT/Subset/Case_02.png,2,,,
