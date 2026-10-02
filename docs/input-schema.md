@@ -26,7 +26,7 @@
 | `expected_counts` | 可选每数据集样本数约束，如 `{"MY-DATASET":2}` |
 | `expected_size` | 可选共同尺寸约束 `[width,height]` |
 
-本次实验的 100、256×256 和冻结哈希保存在被忽略的 `configs/local.fixed100.json`，公开配置示例不固定这些个人实验约束。
+本次实验的数量、尺寸和新冻结哈希在新随机包验收后写入被忽略的 `configs/local.fixed100.json`，公开配置示例不固定这些个人实验约束。不要继续使用退役集合的个人配置哈希。
 
 ```json
 {
@@ -47,7 +47,11 @@
 
 固定导出必须带 `selection.sha256`、`EXPORT_COMPLETE.json`、各数据集 `samples.csv` 和 T1/T2/GT。导入验收检查原始字节哈希、CSV 与 selection 一致性、文件集合、完整解码、尺寸以及对应哈希。`selection.json` 中旧阶段文字不改变冻结集合；不能据此重新选择样本。
 
-`validate --samples-only` 检查样本清单与 GT，可在 Prediction 尚未准备时执行；它不重复导入阶段对 T1/T2 的完整验收，也不声称验收 Prediction。
+可选的 `datasets[dataset].test_txt_sha256` 是严格的 64 位十六进制 SHA-256 字符串。字段存在时，包内必须有 `<dataset>/test.txt`；UTF-8 文件每行一个完整原始 sample ID，ID 与顺序须精确等于该数据集的 `selection`。工具首先校验文件原字节哈希，再核对 ID/顺序，不去扩展名、改大小写、去前导零、排序或跳过空行。缺失文件、非法摘要、哈希不符或重新封印后仍错序都报错。
+
+通过检查的 `test.txt` 加入 `manifest_hashes`，因此 `validate`、`generate` 和 `verify` 会检查列表在读取或生成期间是否变化。旧 selection 没有这个可选字段仍兼容。该列表用于上游模型测试列表适配；随机策略与种子仅由上游第一次选样决定，本工具只消费冻结清单。
+
+`validate --samples-only` 检查样本清单（包含显式封印的 `test.txt`）与 GT，可在 Prediction 尚未准备时执行；它不重复导入阶段对 T1/T2 的完整验收，也不声称验收 Prediction。
 
 ## 通用样本 CSV
 

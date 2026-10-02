@@ -159,6 +159,18 @@ def load_selection_records(root, selection_file=None, expected_sha=None, expecte
                             "width": width, "height": height,
                             "provenance": {"gt_source": gt["source"], "source_list_entry": record.get("source_list_entry", "")},
                             "files": files})
+        if "test_txt_sha256" in data:
+            # Upstream may supply a reusable frozen inference list. Never
+            # reconstruct its order or normalize the original sample IDs.
+            test_path = safe_join(root, dataset + "/test.txt")
+            expected_test_hash = _digest(data["test_txt_sha256"], dataset + " test.txt", optional=False)
+            hashes[str(test_path)] = _check_hash(test_path, expected_test_hash, "test.txt")
+            try:
+                test_ids = test_path.read_bytes().decode("utf-8").splitlines()
+            except (OSError, UnicodeError) as exc:
+                raise CDMapError("Cannot read test.txt for " + dataset + ": " + str(exc))
+            _require(test_ids == [record["sample_id"] for record in selected],
+                     "test.txt ID/order mismatch with selection for " + dataset)
     check_unique_paths(all_targets, "Frozen input")
     if expected_counts:
         _require(set(expected_counts) <= set(datasets), "Expected datasets missing from selection")

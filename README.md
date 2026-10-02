@@ -4,11 +4,13 @@
 
 当前优先支持 LEVIR-CD、SYSU-CD、WHU 已冻结的各 100 个 test 样本，也支持简单 CSV 清单。本工具不筛选样本、不运行模型、不调整 Prediction，不制作最终论文排版图。
 
+本次实验已改为从原 test 随机选择一次、随后固定复用同一集合。旧按图片文件大小排序的集合已退役；新随机集合正在等待服务器选取、导出和本地导入。工具及专用环境继续复用，下文真实样本操作须在新清单验收后执行。
+
 **工具开发与原图导入可以在没有真实 Prediction 时完成。真实 Prediction 尚未准备时，普通配对验证会明确报错；合成示例仅用于独立测试，不代表真实模型结果。**
 
 ## 环境与运行
 
-运行依赖只有 Python、NumPy、Pillow 和标准库，无需 PyTorch、CUDA 或 GPU。项目提供专用 Conda 环境定义 `environment.yml`，不复用或修改模型环境。首版已在 Windows 的 Python 3.9.23 / NumPy 1.26.4 / Pillow 10.4.0 中实测：91 项测试中 89 项通过，2 项真实符号链接测试因 Windows 权限跳过。Linux/macOS 尚未本地实测；CI 配置包含 Python 3.9 和 3.12，远程结果以实际 Actions 记录为准。详见 [开发进度](DEVELOPMENT_PROGRESS.md)。
+运行依赖只有 Python、NumPy、Pillow 和标准库，无需 PyTorch、CUDA 或 GPU。项目提供专用 Conda 环境定义 `environment.yml`，不复用或修改模型环境。首版已在 Windows 的 Python 3.9.23 / NumPy 1.26.4 / Pillow 10.4.0 中实测；首版 [Linux CI](https://github.com/JiaJiaHw/CD-error-maps/actions/runs/36952784905) 的 Python 3.9、3.12 两组均已通过全部 91 项测试。新增冻结 `test.txt` 适配及其当前验证范围见 [开发进度](DEVELOPMENT_PROGRESS.md)，macOS 尚未验证。
 
 安装 Conda 后，在项目根打开终端，直接创建并激活项目专用环境：
 
@@ -40,9 +42,9 @@ CD-error-maps/
       selection.json               # 原始冻结清单，仅本地保存
       selection.sha256
       EXPORT_COMPLETE.json
-      LEVIR-CD/{samples.csv,T1/,T2/,GT/}
-      SYSU-CD/{samples.csv,T1/,T2/,GT/}
-      WHU/{samples.csv,T1/,T2/,GT/}
+      LEVIR-CD/{samples.csv,test.txt,T1/,T2/,GT/}
+      SYSU-CD/{samples.csv,test.txt,T1/,T2/,GT/}
+      WHU/{samples.csv,test.txt,T1/,T2/,GT/}
     predictions/<dataset>/<model>/ # 真实单通道 Prediction，仅本地保存
   outputs/                         # 每次生成的新运行目录，仅本地保存
   examples/                        # 公开模板和独立合成生成器
@@ -58,6 +60,8 @@ Git 在 `data/`、`outputs/` 内只跟踪 `.gitkeep` 占位文件。真实图片
 
 本次本地数据根是项目内的 `data/fixed_samples/`。`selection.json` 决定冻结 ID、顺序、对应路径和已记录的哈希；每个数据集的 `samples.csv` 用于交叉核对。不要编辑这些原始文件。
 
+新随机导出还为每个数据集提供 `test.txt`：每行一个原始 sample ID，顺序与 selection 完全一致，供服务器模型测试列表适配复用。selection 的 `datasets[dataset].test_txt_sha256` 声明其原字节哈希时，本工具检查文件存在、哈希及 ID/顺序，并将它纳入生成与回读的输入快照。上游仅在首次选样时随机；推理、提取预测、误差图生成均读取同一冻结清单，不能再次随机。旧格式没有这个字段仍可读取，但本次新实验须使用新随机导出的清单和对应 Prediction，不能混用退役集合。
+
 本地 GT 按 `samples_root + selection 中 files.GT.target` 读取。清单中的服务器 `source` 绝对路径只保留为来源记录。T1/T2 供人工核对及后续展示；误差图分类直接使用 GT 和 Prediction。
 
 在已导入数据并具备本地配置时，先做不依赖 Prediction 的检查：
@@ -66,7 +70,7 @@ Git 在 `data/`、`outputs/` 内只跟踪 `.gitkeep` 占位文件。真实图片
 python run.py validate --config configs/local.fixed100.json --samples-only
 ```
 
-该命令只验证样本清单和 GT，不读取 T1/T2，也不声称验证了任何 Prediction。导入时的全量验收另行检查 T1/T2/GT 共 900 张原图。固定约束（本次数量、尺寸、冻结 SHA-256）在本地配置中保存；通用代码不硬编码这些约束。
+该命令只验证样本清单（包括显式封印的 `test.txt`）和 GT，不读取 T1/T2，也不声称验证了任何 Prediction。导入时的全量验收另行检查 T1/T2/GT 共 900 张原图。固定约束（本次数量、尺寸、新冻结 SHA-256）在重新导入后写入本地配置；不要沿用退役集合的哈希。通用代码不硬编码这些约束。
 
 如需在另一份本地检出中导入固定包，`import-fixed` 会先校验压缩包、检查路径和文件类型，在独立暂存区验收后合并相同文件；不会覆盖不一致的既有文件。用 `python run.py import-fixed --help` 查看参数。源压缩包和校验文件保留，导入只去掉唯一最外层目录。
 
