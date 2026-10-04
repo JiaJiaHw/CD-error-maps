@@ -15,6 +15,8 @@ python run.py --help
 
 这些命令在项目根执行，Windows/Linux/macOS 使用各自平台的 Conda 安装。激活后以下 `python` 均属于本项目环境；源码入口不要求安装项目包。`environment.yml` 可以提交，`.conda/` 和环境内的实际文件不提交。CI 的版本矩阵是声明的自动验证任务，是否通过应查看实际运行记录。
 
+已经创建本项目 `.conda` 时，直接 `conda activate ./.conda` 使用现有环境，无需重新执行创建命令。当前维护不需要调整模型环境；不同平台是否经过实际验证见 [开发进度](../DEVELOPMENT_PROGRESS.md)。
+
 ## 为离线机器准备依赖
 
 离线服务器不能直接联网执行 `conda env create`。应在匹配目标操作系统和 CPU 架构的在线环境创建本项目专用 Conda 环境，再按已验证的离线环境迁移流程转移、恢复和自检；Windows 环境不能直接复制到 Linux。
