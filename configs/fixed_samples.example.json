@@ -11,5 +11,5 @@
   "gt_encoding": "binary_0255",
   "prediction_encoding": "binary_0255",
   "ignore": null,
-  "palette": {"TN": [0, 0, 0], "TP": [255, 255, 255], "FP": [230, 159, 0], "FN": [0, 114, 178], "IGNORE": [128, 128, 128]}
+  "palette": {"TN": [0, 0, 0], "TP": [255, 255, 255], "FP": [255, 0, 0], "FN": [0, 255, 0], "IGNORE": [128, 128, 128]}
 }

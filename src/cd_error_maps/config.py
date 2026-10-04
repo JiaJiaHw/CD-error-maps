@@ -5,16 +5,17 @@ from pathlib import Path
 
 from .common import CDMapError, validate_relative
 from .core import validate_palette
+from .masks import validate_gt_value_map
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-PALETTE = {"TN": [0, 0, 0], "TP": [255, 255, 255], "FP": [230, 159, 0],
-           "FN": [0, 114, 178], "IGNORE": [128, 128, 128]}
+PALETTE = {"TN": [0, 0, 0], "TP": [255, 255, 255], "FP": [255, 0, 0],
+           "FN": [0, 255, 0], "IGNORE": [128, 128, 128]}
 PATH_KEYS = ("samples_root", "selection_file", "samples_manifest", "prediction_root",
              "prediction_manifest", "output_root")
 ALLOWED = set(PATH_KEYS) | {"schema_version", "datasets", "models", "combinations",
     "prediction_path_template", "expected_selection_sha256", "expected_manifest_sha256",
     "expected_prediction_manifest_sha256", "expected_counts", "expected_size",
-    "gt_encoding", "prediction_encoding", "ignore", "palette", "encodings", "model_aliases"}
+    "gt_encoding", "prediction_encoding", "ignore", "palette", "encodings", "model_aliases", "gt_value_maps"}
 
 
 def _path(value):
@@ -111,12 +112,22 @@ def load_config(path=None):
             for encoding in encoding_for(config, dataset, model):
                 if encoding not in ("binary_01", "binary_0255"):
                     raise CDMapError("Unsupported binary encoding: {}".format(encoding))
+    config.setdefault("gt_value_maps", {})
+    if not isinstance(config["gt_value_maps"], dict):
+        raise CDMapError("gt_value_maps must be an object keyed by dataset")
+    for dataset, mapping in config["gt_value_maps"].items():
+        if dataset not in config["datasets"]:
+            raise CDMapError("Unknown GT value map dataset: {}".format(dataset))
+        config["gt_value_maps"][dataset] = validate_gt_value_map(mapping)
     config.setdefault("ignore", None)
     if config["ignore"] is not None:
         ig = config["ignore"]
         if not isinstance(ig, dict) or set(ig) != {"gt_value"} or type(ig["gt_value"]) is not int or not 0 <= ig["gt_value"] <= 255:
             raise CDMapError("ignore must be null or {gt_value: integer 0..255}")
         for dataset in config["datasets"]:
+            mapping = config["gt_value_maps"].get(dataset)
+            if mapping is not None:
+                validate_gt_value_map(mapping, ig["gt_value"])
             for model in config["models"]:
                 fg = 1 if encoding_for(config, dataset, model)[0] == "binary_01" else 255
                 if ig["gt_value"] in (0, fg):

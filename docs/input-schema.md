@@ -18,6 +18,7 @@
 | `combinations` | 可选明确范围，形如 `[{"dataset":"WHU","model":"CDMamba"}]` |
 | `gt_encoding`、`prediction_encoding` | 分别是 `binary_01` 或 `binary_0255` |
 | `encodings` | 可选按 dataset/model 覆盖编码，见下例 |
+| `gt_value_maps` | 可选按 dataset 显式声明 GT 背景/变化原像素值，仅作用于 GT |
 | `ignore` | `null`，或 `{"gt_value":128}` 等显式第三值 |
 | `palette` | TN/TP/FP/FN/IGNORE 的不同 RGB 三元组，每通道 0～255 |
 | `expected_selection_sha256` | 可选原 selection 字节 SHA-256 |
@@ -88,6 +89,20 @@ MY-DATASET,MY-MODEL,Subset/Case_02.png,MY-DATASET/MY-MODEL/Subset/Case_02_pred.p
 ## 图片与 ignore
 
 图片必须是可完整解码的 PNG，模式为 `L`（uint8 单通道）。`binary_01` 只允许 0/1；`binary_0255` 只允许 0/255。单值背景或单值前景合法。GT 和 Prediction 尺寸相同；如有清单/配置尺寸声明，也要满足声明。
+
+同源 GT 若已证实用多个原像素值表达同一类，可在个人配置显式声明：
+
+```json
+{
+  "gt_value_maps": {
+    "LEVIR-CD": {"background": [0], "change": [254, 255]}
+  }
+}
+```
+
+该规则只覆盖所列数据集的 GT 类值解释；没有规则的数据集继续严格使用原 `gt_encoding`。每个规则只能有 `background`、`change` 两个非空列表，元素须为不重复的 0～255 整数（不接受布尔值），两类不可重叠。未声明的像素值仍拒绝；这不是阈值转换，也不会改写 GT 文件、selection、CSV 或任一 Prediction。映射本身不能声明 ignore；独立 `ignore` 保持既有规则，并且不得与映射背景/变化值冲突。Prediction 始终按独立二值编码检查，不接受 GT 映射，即使像素位于 GT ignore 区域。
+
+非空的 `gt_value_maps` 原声明进入验证报告，映射涉及的样本/配对 JSON 记录 `gt_value_map`。生成运行还将规则保存于 `effective_config.json`；配置和验证报告纳入 artifact 哈希及完成封印。`verify` 重读规则、重新解码输入并核对原输入快照，映射篡改或生成期间改变规则均导致失败。没有映射字段的既有二值配置和运行保持兼容。公开模板不默认启用映射，个人实验必须记录它的来源证据。
 
 默认没有 ignore。仅 GT 可声明不等于自身背景/前景值的第三值，范围 0～255。该值的像素在输出为 IGNORE=255，不参与统计指标。Prediction 即使位于 GT ignore 区域也必须是合法二值，不接受概率、脏值或另一个 ignore 值。
 

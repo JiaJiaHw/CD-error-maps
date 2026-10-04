@@ -110,7 +110,7 @@ def create_workspace():
                                                "prediction_encoding": "binary_01"}}
                           for dataset in ("SYNTH-A", "SYNTH-B")},
             "palette": {"TN": [0, 0, 0], "TP": [255, 255, 255],
-                        "FP": [230, 159, 0], "FN": [0, 114, 178], "IGNORE": [128, 128, 128]},
+                        "FP": [255, 0, 0], "FN": [0, 255, 0], "IGNORE": [128, 128, 128]},
         }
         write_json(stage / "config.json", config)
         explicit = dict(config)

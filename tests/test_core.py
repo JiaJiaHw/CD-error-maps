@@ -120,7 +120,7 @@ class CoreTests(unittest.TestCase):
         rgb = render(index, DEFAULT_PALETTE)
         np.testing.assert_array_equal(
             rgb,
-            [[[0, 0, 0], [255, 255, 255], [230, 159, 0], [0, 114, 178], [128, 128, 128]]],
+            [[[0, 0, 0], [255, 255, 255], [255, 0, 0], [0, 255, 0], [128, 128, 128]]],
         )
         self.assertEqual(rgb.dtype, np.dtype(np.uint8))
         with temporary_directory() as temporary:

@@ -115,7 +115,7 @@ class PipelineTests(unittest.TestCase):
             self.assertEqual(np.array(image).tolist(), [[0, 2], [1, 3]])
         with Image.open(self.run / first["error_rgb"]) as image:
             self.assertEqual(image.mode, "RGB")
-            self.assertEqual(np.array(image).tolist(), [[[0, 0, 0], [230, 159, 0]], [[255, 255, 255], [0, 114, 178]]])
+            self.assertEqual(np.array(image).tolist(), [[[0, 0, 0], [255, 0, 0]], [[255, 255, 255], [0, 255, 0]]])
         self.assertEqual(first["counts"], {"TN": 1, "TP": 1, "FP": 1, "FN": 1, "ignored": 0, "valid": 4, "width": 2, "height": 2})
         summaries = {(row["dataset"], row["model"]): row for row in manifest["summary"]}
         a = summaries["D1", "M1"]

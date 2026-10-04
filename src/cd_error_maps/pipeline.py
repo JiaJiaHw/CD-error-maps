@@ -17,7 +17,7 @@ from .common import CDMapError, check_unique_paths, output_id, safe_join, sha256
 from .config import PROJECT_ROOT, effective_config, encoding_for, load_config
 from .core import CLASS_INDEX, classify, counts, metrics, render, validate_palette, write_legend
 from .manifests import load_samples, pair_samples
-from .masks import read_mask
+from .masks import read_gt_mask, read_mask
 
 COUNT_FIELDS = ["TN", "TP", "FP", "FN", "ignored", "valid", "width", "height"]
 PAIR_FIELDS = ["dataset", "model", "sample_id", "rank", "gt_path", "prediction_path", "gt_sha256",
@@ -103,17 +103,23 @@ def _read_pair(config, pair, expected=None):
                                    ("Prediction", pred_hash, pair.get("prediction_sha256"))):
         _require(not wanted or actual == wanted, "{} hash mismatch {} at {}".format(label, key, gt_path if label == "GT" else pred_path))
     genc, penc = encoding_for(config, pair["dataset"], pair["model"])
-    gt, valid = read_mask(gt_path, genc, _ignore_value(config))
+    gt_value_map = config.get("gt_value_maps", {}).get(pair["dataset"])
+    if expected:
+        _require(gt_value_map == expected.get("gt_value_map"), "GT value mapping changed after validation: {}".format(key))
+    gt, valid = read_gt_mask(gt_path, genc, _ignore_value(config), gt_value_map)
     pred, _ = read_mask(pred_path, penc)
     _require(gt.shape == pred.shape, "GT/Prediction size mismatch {}: {} vs {}".format(key, gt.shape, pred.shape))
     size = [gt.shape[1], gt.shape[0]]
     _require(not config.get("expected_size") or size == config["expected_size"], "Configured size mismatch {}: {}".format(key, size))
     _require(not pair.get("width") or size == [pair["width"], pair["height"]], "Manifest size mismatch {}: {}".format(key, size))
     _require(sha256(gt_path) == gt_hash and sha256(pred_path) == pred_hash, "Input changed while decoding: {}".format(key))
-    return gt, pred, valid, {"gt_path": str(gt_path), "prediction_path": str(pred_path),
-                            "gt_sha256": gt_hash, "prediction_sha256": pred_hash,
-                            "gt_encoding": genc, "prediction_encoding": penc,
-                            "width": size[0], "height": size[1]}
+    info = {"gt_path": str(gt_path), "prediction_path": str(pred_path),
+            "gt_sha256": gt_hash, "prediction_sha256": pred_hash,
+            "gt_encoding": genc, "prediction_encoding": penc,
+            "width": size[0], "height": size[1]}
+    if gt_value_map is not None:
+        info["gt_value_map"] = json.loads(json.dumps(gt_value_map))
+    return gt, pred, valid, info
 
 
 def _snapshot_unchanged(report):
@@ -126,6 +132,7 @@ def _snapshot_unchanged(report):
 
 
 def validate_config_inputs(config, combinations, samples_only=False):
+    gt_value_maps = json.loads(json.dumps(config.get("gt_value_maps", {})))
     palette = validate_palette(config["palette"])
     samples, hashes = load_samples(config)
     if config.get("prediction_manifest") and not samples_only:
@@ -142,11 +149,13 @@ def validate_config_inputs(config, combinations, samples_only=False):
             _require(not sample.get("gt_sha256") or digest == sample["gt_sha256"], "GT hash mismatch: " + str(path))
             encoding_list = sorted({encoding_for(config, d, m)[0] for d, m in combinations if d == sample["dataset"]})
             for encoding in encoding_list:
-                gt, _ = read_mask(path, encoding, _ignore_value(config))
+                gt, _ = read_gt_mask(path, encoding, _ignore_value(config), gt_value_maps.get(sample["dataset"]))
                 size = [gt.shape[1], gt.shape[0]]
                 _require(not sample.get("width") or size == [sample["width"], sample["height"]], "GT manifest size mismatch: " + str(path))
                 _require(not config.get("expected_size") or size == config["expected_size"], "GT configured size mismatch: " + str(path))
             normalized.append(dict(sample, gt_path=str(path), gt_sha256=digest, width=size[0], height=size[1]))
+            if sample["dataset"] in gt_value_maps:
+                normalized[-1]["gt_value_map"] = json.loads(json.dumps(gt_value_maps[sample["dataset"]]))
     else:
         for pair in pair_samples(config, samples, combinations):
             _, _, _, info = _read_pair(config, pair)
@@ -155,6 +164,9 @@ def validate_config_inputs(config, combinations, samples_only=False):
               "prediction_checked": not samples_only, "scope": [list(x) for x in combinations],
               "pair_count": len(normalized), "manifest_hashes": hashes, "palette": palette,
               "pairs": normalized, "validated_at_utc": _now()}
+    if gt_value_maps:
+        report["gt_value_maps"] = gt_value_maps
+    _require(config.get("gt_value_maps", {}) == gt_value_maps, "GT value mapping changed during validation")
     _snapshot_unchanged(report)
     return report
 
@@ -245,6 +257,8 @@ def generate(config, combinations, limit=None, out=None):
                         error_rgb_sha256=sha256(rgb_path), error_class_sha256=sha256(class_path), counts=counts(index))
             manifest["pairs"].append(item)
         _snapshot_unchanged(validation)
+        _require(config.get("gt_value_maps", {}) == validation.get("gt_value_maps", {}),
+                 "GT value mapping changed after validation")
         pairs = manifest["pairs"]
         _write_csv(run / "pairs.csv", PAIR_FIELDS, pairs)
         _write_csv(run / "pixel_counts.csv", PIXEL_FIELDS, [dict({k: p[k] for k in ("dataset", "model", "sample_id")}, **p["counts"]) for p in pairs])
